@@ -14,8 +14,6 @@ Get the latest release here: [Releases](https://github.com/rasp8erries/multiblox
 - That's it! Will find existing AND future Roblox instances. 
 - If you have problems running it see [Issues](#issues) below. 
 
-![MultiBlox Success](/images/multiblox-success-v1.0.4.png)
-
 ## How it works
 
 This Multiblox utility terminates two components of RobloxPlayerBeta.exe (the roblox app) that prevent opening multiple instances of Roblox.
