@@ -39,12 +39,12 @@ So just click Yes to this to continue.
 
 ## <a name="reqs"></a>Requirements
 - Windows Only
-- .Net Runtime v8 
-  - Get it here: [.Net 8.0](https://aka.ms/dotnet-core-applaunch?framework=Microsoft.NETCore.App&framework_version=8.0.0&arch=x64&rid=win10-x64)
+- .Net Runtime v7 
+  - Get it here: [.Net 7.0](https://aka.ms/dotnet-core-applaunch?framework=Microsoft.NETCore.App&framework_version=7.0.0&arch=x64&rid=win10-x64)
 
 ## <a name="issues"></a>Issues
 ### Nothing Opens
-You probably need to download/install [.Net Runtime 8.0](https://aka.ms/dotnet-core-applaunch?framework=Microsoft.NETCore.App&framework_version=8.0.0&arch=x64&rid=win10-x64).
+You probably need to download/install .NET 7.0
 
 ### Security Warnings
 If you get a Windows Security warning similar to the below, don't be alarmed. Its only happening because I am not a "known publisher" and this app is access system management stuff in order to watch for new Roblox processes. 
