@@ -76,7 +76,7 @@ class Program : Form
     public Program()
     {
         trayIcon = new NotifyIcon();
-        trayIcon.Icon = new Icon(SystemIcons.Application, 40, 40);
+        trayIcon.Icon = new System.Drawing.Icon("multiblox.ico"); // Use the same icon file
         trayIcon.ContextMenuStrip = new ContextMenuStrip();
         trayIcon.Visible = true;
         this.WindowState = FormWindowState.Minimized;
