@@ -84,7 +84,7 @@ class Program : Form
     {
         trayIcon = new NotifyIcon
         {
-            Icon = new Icon("multiblox.ico"),
+            Icon = new Icon(GetType().Assembly.GetManifestResourceStream("multiblox.ico")),
             ContextMenuStrip = new ContextMenuStrip(),
             Visible = true
         };
