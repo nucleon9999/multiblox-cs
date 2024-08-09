@@ -58,7 +58,6 @@ class Program : Form
     private NotifyIcon trayIcon;
     private string taskStatus;
     private Queue<Process> ProcQueue = new Queue<Process>();
-    private HashSet<int> Evaluated = new HashSet<int>();
     private HashSet<IntPtr> Handles = new HashSet<IntPtr>();
     private ToolStripMenuItem menuStatus;
     private ManagementEventWatcher Watcher;
@@ -67,6 +66,14 @@ class Program : Form
 
     static void Main()
     {
+        AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+        {
+            Exception e = (Exception)args.ExceptionObject;
+            MessageBox.Show("Unhandled exception: " + e.Message + "\n" + e.StackTrace);
+        };
+
+        if (!CheckDotNet()) return;
+
         Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Idle;
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -75,24 +82,30 @@ class Program : Form
 
     public Program()
     {
-        trayIcon = new NotifyIcon();
-        trayIcon.Icon = new System.Drawing.Icon("multiblox.ico"); // Use the same icon file
-        trayIcon.ContextMenuStrip = new ContextMenuStrip();
-        trayIcon.Visible = true;
+        trayIcon = new NotifyIcon
+        {
+            Icon = new Icon("multiblox.ico"),
+            ContextMenuStrip = new ContextMenuStrip(),
+            Visible = true
+        };
         this.WindowState = FormWindowState.Minimized;
         this.ShowInTaskbar = false;
-        menuStatus = new ToolStripMenuItem();
-        menuStatus.Enabled = false;
+        menuStatus = new ToolStripMenuItem
+        {
+            Enabled = false
+        };
         trayIcon.ContextMenuStrip.Items.Add(menuStatus);
         trayIcon.ContextMenuStrip.Items.Add("Exit", null, (s, e) =>
         {
             trayIcon.Visible = false;
             Application.Exit();
         });
+
         foreach (Process p in Process.GetProcessesByName(ProcessName))
         {
             ProcQueue.Enqueue(p);
         }
+
         Watcher = new ManagementEventWatcher(
             new WqlEventQuery(
                 "__InstanceCreationEvent",
@@ -101,19 +114,41 @@ class Program : Form
             )
         );
 
-        Watcher.EventArrived += new EventArrivedEventHandler(
-            async (s, e) => ProcQueue.Enqueue(
-                Process.GetProcessById(
-                    Convert.ToInt32(((ManagementBaseObject)e.NewEvent["TargetInstance"])["ProcessId"])
-                )
-            )
-        );
+        Watcher.EventArrived += async (s, e) =>
+        {
+            int processId = Convert.ToInt32(((ManagementBaseObject)e.NewEvent["TargetInstance"])["ProcessId"]);
+            await Task.Run(() => ProcQueue.Enqueue(Process.GetProcessById(processId)));
+        };
+
         Watcher.Start();
         Task.Run(() => MainLoop());
         Task.Run(() => StatusLoop());
         taskStatus = ProcQueue.Count > 0 ? "Enabled" : "Waiting for " + ProcessName;
     }
 
+    static bool CheckDotNet()
+    {
+        try
+        {
+            if (Type.GetType("System.Runtime.GCSettings, mscorlib") == null) throw new Exception("Required .NET runtime not found.");
+            return true;
+        }
+        catch
+        {
+            MessageBox.Show("The required .NET runtime is not installed. Please install the latest .NET runtime from the official website.",
+                            "Runtime Missing",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://dotnet.microsoft.com/download",
+                UseShellExecute = true
+            });
+
+            return false;
+        }
+    }
     protected override void OnLoad(EventArgs e)
     {
         Visible = false;
