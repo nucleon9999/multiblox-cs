@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Management;
+using Microsoft.Win32;
 
 class Program : Form
 {
@@ -55,6 +56,7 @@ class Program : Form
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     static extern bool AttachConsole(int dwProcessId);
+
     private NotifyIcon trayIcon;
     private string taskStatus;
     private Queue<Process> ProcQueue = new Queue<Process>();
@@ -82,77 +84,100 @@ class Program : Form
 
     public Program()
     {
-        trayIcon = new NotifyIcon
+        this.trayIcon = new NotifyIcon
         {
-            Icon = new Icon(GetType().Assembly.GetManifestResourceStream("multiblox.ico")),
+            Icon = new Icon(this.GetType().Assembly.GetManifestResourceStream("multiblox.ico")),
             ContextMenuStrip = new ContextMenuStrip(),
             Visible = true
         };
         this.WindowState = FormWindowState.Minimized;
         this.ShowInTaskbar = false;
-        menuStatus = new ToolStripMenuItem
+        this.menuStatus = new ToolStripMenuItem
         {
             Enabled = false
         };
-        trayIcon.ContextMenuStrip.Items.Add(menuStatus);
-        trayIcon.ContextMenuStrip.Items.Add("Exit", null, (s, e) =>
+        this.trayIcon.ContextMenuStrip.Items.Add(this.menuStatus);
+        this.trayIcon.ContextMenuStrip.Items.Add("Exit", null, (s, e) =>
         {
-            trayIcon.Visible = false;
+            this.trayIcon.Visible = false;
             Application.Exit();
         });
 
-        foreach (Process p in Process.GetProcessesByName(ProcessName))
+        foreach (Process p in Process.GetProcessesByName(this.ProcessName))
         {
-            ProcQueue.Enqueue(p);
+            this.ProcQueue.Enqueue(p);
         }
 
-        Watcher = new ManagementEventWatcher(
+        this.Watcher = new ManagementEventWatcher(
             new WqlEventQuery(
                 "__InstanceCreationEvent",
                 new TimeSpan(0, 0, 1),
-                "TargetInstance isa 'Win32_Process' and TargetInstance.Name = '" + ProcessName + ".exe'"
+                "TargetInstance isa 'Win32_Process' and TargetInstance.Name = '" + this.ProcessName + ".exe'"
             )
         );
 
-        Watcher.EventArrived += async (s, e) =>
+        this.Watcher.EventArrived += async (s, e) =>
         {
             int processId = Convert.ToInt32(((ManagementBaseObject)e.NewEvent["TargetInstance"])["ProcessId"]);
-            await Task.Run(() => ProcQueue.Enqueue(Process.GetProcessById(processId)));
+            await Task.Run(() => this.ProcQueue.Enqueue(Process.GetProcessById(processId)));
         };
 
-        Watcher.Start();
-        Task.Run(() => MainLoop());
-        Task.Run(() => StatusLoop());
-        taskStatus = ProcQueue.Count > 0 ? "Enabled" : "Waiting for " + ProcessName;
+        this.Watcher.Start();
+        Task.Run(() => this.MainLoop());
+        Task.Run(() => this.StatusLoop());
+        this.taskStatus = this.ProcQueue.Count > 0 ? "Enabled" : "Waiting for " + this.ProcessName;
     }
 
     static bool CheckDotNet()
     {
+        const string registryPath = @"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedhost";
+        const string versionKey = "Version";
+
         try
         {
-            if (Type.GetType("System.Runtime.GCSettings, mscorlib") == null) throw new Exception("Required .NET runtime not found.");
-            return true;
+            using (RegistryKey ndpKey = Registry.LocalMachine.OpenSubKey(registryPath))
+            {
+                if (ndpKey == null)
+                    return ShowErrorAndPrompt();
+
+                object versionObj = ndpKey.GetValue(versionKey);
+                if (versionObj == null)
+                    return ShowErrorAndPrompt();
+
+                Version installedVersion = new Version(versionObj.ToString());
+                if (installedVersion.Major < 8)
+                    return ShowErrorAndPrompt();
+
+                return true;
+            }
         }
         catch
         {
-            MessageBox.Show("The required .NET runtime is not installed. Please install the latest .NET runtime from the official website.",
-                            "Runtime Missing",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "https://dotnet.microsoft.com/download",
-                UseShellExecute = true
-            });
-
-            return false;
+            return ShowErrorAndPrompt();
         }
     }
+
+    static bool ShowErrorAndPrompt()
+    {
+        MessageBox.Show("The required .NET runtime is not installed. Please install the latest .NET runtime from the official website.",
+                        "Runtime Missing",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "https://dotnet.microsoft.com/download",
+            UseShellExecute = true
+        });
+
+        return false;
+    }
+
+
     protected override void OnLoad(EventArgs e)
     {
-        Visible = false;
-        ShowInTaskbar = false;
+        this.Visible = false;
+        this.ShowInTaskbar = false;
         base.OnLoad(e);
     }
 
@@ -160,10 +185,10 @@ class Program : Form
     {
         while (true)
         {
-            Invoke(new Action(() =>
+            this.Invoke(new Action(() =>
             {
-                trayIcon.Text = taskStatus.Length > 63 ? taskStatus.Substring(0, 63) : taskStatus;
-                menuStatus.Text = taskStatus.Length > 63 ? taskStatus.Substring(0, 63) : taskStatus;
+                this.trayIcon.Text = this.taskStatus.Length > 63 ? this.taskStatus.Substring(0, 63) : this.taskStatus;
+                this.menuStatus.Text = this.taskStatus.Length > 63 ? this.taskStatus.Substring(0, 63) : this.taskStatus;
             }));
             await Task.Delay(1000);
         }
@@ -174,24 +199,24 @@ class Program : Form
         int count = 0;
         while (true)
         {
-            taskStatus = "Multi-instance mode enabled [" + count + "]";
-            switch (ProcQueue.Count)
+            this.taskStatus = "Multi-instance mode enabled [" + count + "]";
+
+            if (this.ProcQueue.Count == 0)
             {
-                case 0:
-                    await Task.Delay(1000);
-                    break;
-                default:
-                    count++;
-                    await UpdateHandleList(ProcQueue.Peek())
-                        .ContinueWith(async t => await closeHandles(ProcQueue.Peek()))
-                        .Unwrap()
-                        .ContinueWith(async t =>
-                        {
-                            if (await t) ProcQueue.Dequeue();
-                            else await Task.Delay(1000);
-                        }).Unwrap();
-                    break;
+                await Task.Delay(1000);
+                continue;
             }
+
+            count++;
+
+
+            await this.UpdateHandleList(this.ProcQueue.Peek());
+
+            bool handlesClosed = await this.closeHandles(this.ProcQueue.Peek());
+
+            if (handlesClosed) this.ProcQueue.Dequeue();
+            else await Task.Delay(1000);
+
         }
     }
 
@@ -202,13 +227,14 @@ class Program : Form
         IntPtr processHandle = OpenProcess(PROCESS_DUP_HANDLE, false, process.Id);
         if (processHandle == IntPtr.Zero) return false;
 
-        Queue<string> tdl = new Queue<string>(OrderedHandles);
+        Queue<string> tdl = new Queue<string>(this.OrderedHandles);
+
         while (tdl.Count > 0)
         {
             string target = tdl.Peek();
             bool found = false;
 
-            foreach (var h in Handles)
+            foreach (var h in this.Handles)
             {
                 IntPtr alloc = Marshal.AllocHGlobal(0x10000);
                 IntPtr dup;
@@ -217,22 +243,26 @@ class Program : Form
                     Marshal.FreeHGlobal(alloc);
                     continue;
                 }
+
                 int returnLength = 0;
                 NtQueryObject(dup, 1, alloc, 0x10000, ref returnLength);
                 NAME nameInfo = (NAME)Marshal.PtrToStructure(alloc, typeof(NAME));
                 string name = nameInfo.Name.Buffer != IntPtr.Zero ? Marshal.PtrToStringUni(nameInfo.Name.Buffer, nameInfo.Name.Length / 2) : null;
-                if ((name != null && name.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0))
+
+                if (name != null && name.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     found = true;
-                    await ForceClose(h, processHandle);
+                    await this.ForceClose(h, processHandle);
                     tdl.Dequeue();
                 }
+
                 Marshal.FreeHGlobal(alloc);
                 NtClose(dup);
+
+                if (found) break;
             }
 
-            if (!found || tdl.Count == 0) break;
-            continue;
+            if (!found) break;
         }
 
         CloseHandle(processHandle);
@@ -242,41 +272,47 @@ class Program : Form
 
     private async Task<bool> ForceClose(IntPtr handle, IntPtr processHandle)
     {
-        IntPtr dupHandle;
-        bool result = DuplicateHandle(processHandle, handle, GetCurrentProcess(), out dupHandle, 0, false, 0x00000001);
-        NtClose(dupHandle);
-        return result;
+        return await Task.Run(() =>
+        {
+            IntPtr dupHandle;
+            bool result = DuplicateHandle(processHandle, handle, GetCurrentProcess(), out dupHandle, 0, false, 0x00000001);
+            NtClose(dupHandle);
+            return result;
+        });
     }
 
     private async Task UpdateHandleList(Process process)
     {
-        int dataSize = 0x10000, length = 0;
-        IntPtr dataPtr = Marshal.AllocHGlobal(dataSize);
-
-        try
+        await Task.Run(() =>
         {
-            while (NtQuerySystemInformation(16, dataPtr, dataSize, ref length) == unchecked((int)0xC0000004))
+            int dataSize = 0x10000, length = 0;
+            IntPtr dataPtr = Marshal.AllocHGlobal(dataSize);
+
+            try
             {
-                dataSize = length;
+                while (NtQuerySystemInformation(16, dataPtr, dataSize, ref length) == unchecked((int)0xC0000004))
+                {
+                    dataSize = length;
+                    Marshal.FreeHGlobal(dataPtr);
+                    dataPtr = Marshal.AllocHGlobal(length);
+                }
+
+                IntPtr itemPtr = dataPtr + IntPtr.Size;
+                int handleCount = Marshal.ReadInt32(dataPtr);
+                for (int i = 0; i < handleCount; i++, itemPtr += Marshal.SizeOf(typeof(HANDLE)))
+                {
+                    HANDLE handleInfo = (HANDLE)Marshal.PtrToStructure(itemPtr, typeof(HANDLE));
+                    if (handleInfo.ProcessId == process.Id) this.Handles.Add(new IntPtr(handleInfo.Handle));
+                }
+            }
+            catch (Exception ex)
+            {
+                this.taskStatus = "Error: " + ex.Message;
+            }
+            finally
+            {
                 Marshal.FreeHGlobal(dataPtr);
-                dataPtr = Marshal.AllocHGlobal(length);
             }
-
-            IntPtr itemPtr = dataPtr + IntPtr.Size;
-            int handleCount = Marshal.ReadInt32(dataPtr);
-            for (int i = 0; i < handleCount; i++, itemPtr += Marshal.SizeOf(typeof(HANDLE)))
-            {
-                HANDLE handleInfo = (HANDLE)Marshal.PtrToStructure(itemPtr, typeof(HANDLE));
-                if (handleInfo.ProcessId == process.Id) Handles.Add(new IntPtr(handleInfo.Handle));
-            }
-        }
-        catch (Exception ex)
-        {
-            taskStatus = "Error: " + ex.Message;
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(dataPtr);
-        }
+        });
     }
 }
